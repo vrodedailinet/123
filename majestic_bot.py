@@ -221,7 +221,7 @@ def run_bot():
     application.add_handler(CommandHandler("unbind", unbind_hwid))
     
     print("Bot started")
-    application.run_polling()
+    application.run_polling(stop_signals=None)
 
 if __name__ == '__main__':
     bot_thread = threading.Thread(target=run_bot, daemon=True)
