@@ -1,6 +1,7 @@
 import os
 import json
 import secrets
+import asyncio
 import threading
 from datetime import datetime, timedelta
 from flask import Flask, request, jsonify
@@ -30,16 +31,12 @@ def generate_key():
     part2 = ''.join(secrets.choice(hex_chars) for _ in range(4))
     return f"MAJ-{part1}-{part2}"
 
-DURATIONS = {
-    '1': 1, '3': 3, '7': 7, '30': 30,
-    '90': 90, '365': 365
-}
+DURATIONS = {'1': 1, '3': 3, '7': 7, '30': 30, '90': 90, '365': 365}
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         await update.message.reply_text("Нет доступа")
         return
-    
     await update.message.reply_text(
         "MAJESTIC KEY MANAGER\n\n"
         "/create 7 - создать ключ\n"
@@ -53,22 +50,17 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def create_key(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         return
-    
     if not context.args:
         await update.message.reply_text("Укажи срок: /create 7")
         return
-    
     days = context.args[0]
     if days not in DURATIONS:
         await update.message.reply_text(f"Доступные сроки: {', '.join(DURATIONS.keys())} дней")
         return
-    
     keys = load_json(KEYS_FILE)
     new_key = generate_key()
-    
     while new_key in keys:
         new_key = generate_key()
-    
     duration = DURATIONS[days]
     keys[new_key] = {
         "duration_days": duration,
@@ -76,95 +68,67 @@ async def create_key(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "activated": None,
         "active": True
     }
-    
     save_json(KEYS_FILE, keys)
-    
-    await update.message.reply_text(
-        f"Ключ создан: {new_key}\nСрок: {duration} дн.\nСтатус: не активирован"
-    )
+    await update.message.reply_text(f"Ключ создан: {new_key}\nСрок: {duration} дн.")
 
 async def revoke_key(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         return
-    
     if not context.args:
         await update.message.reply_text("Укажи ключ: /revoke MAJ-XXXX-XXXX")
         return
-    
     key_to_revoke = context.args[0].upper()
     keys = load_json(KEYS_FILE)
-    
     if key_to_revoke not in keys:
         await update.message.reply_text("Ключ не найден")
         return
-    
     keys[key_to_revoke]['active'] = False
     save_json(KEYS_FILE, keys)
-    
     hwids = load_json(HWID_FILE)
     if key_to_revoke in hwids:
         del hwids[key_to_revoke]
         save_json(HWID_FILE, hwids)
-    
     await update.message.reply_text(f"Ключ отозван: {key_to_revoke}")
 
 async def list_keys(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         return
-    
     keys = load_json(KEYS_FILE)
     hwids = load_json(HWID_FILE)
-    
     if not keys:
         await update.message.reply_text("Нет ключей")
         return
-    
     msg = "Ключи:\n\n"
     for key, data in keys.items():
         status = "Активен" if data['active'] else "Отозван"
         activated = "Активирован" if data['activated'] else "Не активирован"
         bound = "Привязан" if key in hwids else "Не привязан"
-        dur = data['duration_days']
-        msg += f"{key} - {dur}д - {status} - {activated} - {bound}\n"
-    
+        msg += f"{key} - {data['duration_days']}д - {status} - {activated} - {bound}\n"
     await update.message.reply_text(msg)
 
 async def show_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         return
-    
     keys = load_json(KEYS_FILE)
     hwids = load_json(HWID_FILE)
-    
     total = len(keys)
     active = sum(1 for k in keys.values() if k['active'])
     activated = sum(1 for k in keys.values() if k['activated'])
     bound = len(hwids)
-    
-    await update.message.reply_text(
-        f"Статистика\n"
-        f"Всего: {total}\n"
-        f"Активных: {active}\n"
-        f"Активировано: {activated}\n"
-        f"Привязано: {bound}"
-    )
+    await update.message.reply_text(f"Статистика\nВсего: {total}\nАктивных: {active}\nАктивировано: {activated}\nПривязано: {bound}")
 
 async def show_hwid(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         return
-    
     if not context.args:
         await update.message.reply_text("Укажи ключ: /hwid MAJ-XXXX-XXXX")
         return
-    
     key = context.args[0].upper()
     hwids = load_json(HWID_FILE)
     keys = load_json(KEYS_FILE)
-    
     if key not in keys:
         await update.message.reply_text("Ключ не найден")
         return
-    
     if key in hwids:
         await update.message.reply_text(f"HWID: {hwids[key]}")
     else:
@@ -173,28 +137,27 @@ async def show_hwid(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def unbind_hwid(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         return
-    
     if not context.args:
         await update.message.reply_text("Укажи ключ: /unbind MAJ-XXXX-XXXX")
         return
-    
     key = context.args[0].upper()
     hwids = load_json(HWID_FILE)
-    
     if key in hwids:
         del hwids[key]
         save_json(HWID_FILE, hwids)
-        
         keys = load_json(KEYS_FILE)
         if key in keys:
             keys[key]['activated'] = None
             save_json(KEYS_FILE, keys)
-        
         await update.message.reply_text(f"HWID отвязан: {key}")
     else:
         await update.message.reply_text("Ключ не был привязан")
 
 app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return jsonify({"service": "Majestic Key Server", "status": "running"})
 
 @app.route('/check', methods=['POST'])
 def check_key():
@@ -244,9 +207,8 @@ def check_key():
 def ping():
     return jsonify({"status": "ok"})
 
-def run_bot():
+async def main():
     application = Application.builder().token(BOT_TOKEN).build()
-    
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("create", create_key))
     application.add_handler(CommandHandler("revoke", revoke_key))
@@ -254,11 +216,14 @@ def run_bot():
     application.add_handler(CommandHandler("stats", show_stats))
     application.add_handler(CommandHandler("hwid", show_hwid))
     application.add_handler(CommandHandler("unbind", unbind_hwid))
-    
     print("Bot started")
-    application.run_polling()
+    await application.run_polling()
+
+def run_bot():
+    asyncio.run(main())
 
 if __name__ == '__main__':
-    threading.Thread(target=run_bot, daemon=True).start()
+    bot_thread = threading.Thread(target=run_bot, daemon=True)
+    bot_thread.start()
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
