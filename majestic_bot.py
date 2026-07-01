@@ -207,7 +207,7 @@ def check_key():
 def ping():
     return jsonify({"status": "ok"})
 
-async def main():
+async def start_bot():
     application = Application.builder().token(BOT_TOKEN).build()
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("create", create_key))
@@ -219,11 +219,14 @@ async def main():
     print("Bot started")
     await application.run_polling()
 
-def run_bot():
-    asyncio.run(main())
-
-if __name__ == '__main__':
-    bot_thread = threading.Thread(target=run_bot, daemon=True)
-    bot_thread.start()
+def run_flask():
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
+
+if __name__ == '__main__':
+    # Flask в фоновом потоке
+    flask_thread = threading.Thread(target=run_flask, daemon=True)
+    flask_thread.start()
+    
+    # Бот в основном потоке
+    asyncio.run(start_bot())
